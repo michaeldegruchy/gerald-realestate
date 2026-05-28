@@ -1,4 +1,7 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, createContext, useContext } from "react";
+
+// Sidebar / TopBar navigation (set in App)
+const AppNavContext = createContext({ setActive: null, openHelp: null });
 
 // ─── Data ─────────────────────────────────────────────────────────────────────
 const LISTINGS = [
@@ -876,6 +879,7 @@ function Sidebar({ active, setActive, onColorLegend, onHelp, onLogout, onActivit
 
 // ─── Top Bar ──────────────────────────────────────────────────────────────────
 function TopBar({ title, sub, action }) {
+  const { setActive, openHelp } = useContext(AppNavContext);
   return (
     <div style={{ padding: "16px 28px", borderBottom: "1px solid #f1f5f9", display: "flex", alignItems: "center", justifyContent: "space-between", background: "white", flexShrink: 0 }}>
       <div>
@@ -883,12 +887,12 @@ function TopBar({ title, sub, action }) {
         {sub && <div style={{ color: "#94a3b8", fontSize: 12, marginTop: 2 }}>{sub}</div>}
       </div>
       <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-        <button onClick={() => setActive("notifications")} style={{ position: "relative", background: "transparent", border: "none", cursor: "pointer", padding: "4px 8px", fontSize: 20 }}>
+        <button type="button" onClick={() => setActive?.("notifications")} style={{ position: "relative", background: "transparent", border: "none", cursor: "pointer", padding: "4px 8px", fontSize: 20 }}>
             🔔
             <div style={{ position: "absolute", top: 0, right: 0, width: 16, height: 16, borderRadius: "50%", background: "#ef4444", color: "white", fontSize: 9, fontWeight: 800, display: "flex", alignItems: "center", justifyContent: "center" }}>4</div>
           </button>
-          <button onClick={() => setActive("search")} style={{ background: "#f8fafc", border: "1px solid #e2e8f0", color: "#475569", borderRadius: 7, padding: "7px 14px", fontSize: 12, cursor: "pointer", fontFamily: "inherit", display: "flex", alignItems: "center", gap: 4 }}>🔍 Search</button>
-          <button onClick={() => setShowHelp(true)} style={{ background: "#1d4ed8", border: "none", color: "white", borderRadius: 7, padding: "7px 14px", fontSize: 12, fontWeight: 700, cursor: "pointer", fontFamily: "inherit", display: "flex", alignItems: "center", gap: 4 }}>❓ Help</button>
+          <button type="button" onClick={() => setActive?.("search")} style={{ background: "#f8fafc", border: "1px solid #e2e8f0", color: "#475569", borderRadius: 7, padding: "7px 14px", fontSize: 12, cursor: "pointer", fontFamily: "inherit", display: "flex", alignItems: "center", gap: 4 }}>🔍 Search</button>
+          <button type="button" onClick={() => openHelp?.()} style={{ background: "#1d4ed8", border: "none", color: "white", borderRadius: 7, padding: "7px 14px", fontSize: 12, fontWeight: 700, cursor: "pointer", fontFamily: "inherit", display: "flex", alignItems: "center", gap: 4 }}>❓ Help</button>
           <div style={{ background: "#fef3c7", color: "#d97706", fontSize: 11, fontWeight: 700, padding: "5px 12px", borderRadius: 20, border: "1px solid #fde68a" }}>IDX ● LIVE</div>
         {action}
       </div>
@@ -2242,6 +2246,8 @@ Gerald`}</pre>
 }
 
 // ─── Calendar ─────────────────────────────────────────────────────────────────
+const CALENDAR_STORAGE_KEY = "estateiq_calendar_events";
+
 const INIT_EVENTS = [
   { id: 1, title: "Showing — 2847 Maple Grove Ln", date: "2026-05-26", time: "2:00 PM", type: "showing", contact: "Marcus & Elena Rivera", reminder: true },
   { id: 2, title: "Call — Dr. James Thornton", date: "2026-05-25", time: "11:00 AM", type: "call", contact: "Dr. James Thornton", reminder: true },
@@ -2253,40 +2259,94 @@ const INIT_EVENTS = [
 
 const eventColors = { showing: "#8b5cf6", call: "#0ea5e9", offer: "#ec4899", closing: "#10b981", meeting: "#f59e0b", reminder: "#6366f1" };
 
-function CalendarView() {
-  const [events, setEvents] = useState(INIT_EVENTS);
-  const [showAdd, setShowAdd] = useState(false);
-  const [form, setForm] = useState({ title: "", date: "", time: "", type: "call", contact: "", reminder: false });
-  const [viewMonth] = useState("May 2026");
+function toDateStr(y, m, d) {
+  return `${y}-${String(m + 1).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
+}
 
-  const days = Array.from({length: 31}, (_, i) => i + 1);
+function loadCalendarEvents() {
+  try {
+    const raw = localStorage.getItem(CALENDAR_STORAGE_KEY);
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      if (Array.isArray(parsed) && parsed.length) return parsed;
+    }
+  } catch {}
+  return INIT_EVENTS;
+}
+
+function CalendarView() {
+  const today = new Date();
+  const todayStr = toDateStr(today.getFullYear(), today.getMonth(), today.getDate());
+
+  const [events, setEvents] = useState(loadCalendarEvents);
+  const [viewYear, setViewYear] = useState(today.getFullYear());
+  const [viewMonthIdx, setViewMonthIdx] = useState(today.getMonth());
+  const [selectedDate, setSelectedDate] = useState(null);
+  const [showAdd, setShowAdd] = useState(false);
+  const [form, setForm] = useState({ title: "", date: todayStr, time: "", type: "call", contact: "", reminder: false });
+
+  useEffect(() => {
+    try { localStorage.setItem(CALENDAR_STORAGE_KEY, JSON.stringify(events)); } catch {}
+  }, [events]);
+
+  const monthLabel = new Date(viewYear, viewMonthIdx, 1).toLocaleString("en-US", { month: "long", year: "numeric" });
+  const daysInMonth = new Date(viewYear, viewMonthIdx + 1, 0).getDate();
+  const startOffset = new Date(viewYear, viewMonthIdx, 1).getDay();
+  const gridCells = [...Array(startOffset).fill(null), ...Array.from({ length: daysInMonth }, (_, i) => i + 1)];
+
   const inp = { background: "#f8fafc", border: "1px solid #e2e8f0", color: "#0f172a", borderRadius: 6, padding: "9px 12px", fontSize: 13, outline: "none", fontFamily: "inherit", width: "100%", boxSizing: "border-box" };
 
-  const addEvent = () => {
-    setEvents(p => [...p, { ...form, id: Date.now() }]);
-    setShowAdd(false);
-    setForm({ title: "", date: "", time: "", type: "call", contact: "", reminder: false });
+  const shiftMonth = (delta) => {
+    const d = new Date(viewYear, viewMonthIdx + delta, 1);
+    setViewYear(d.getFullYear());
+    setViewMonthIdx(d.getMonth());
   };
 
-  const upcomingEvents = events.sort((a,b) => a.date.localeCompare(b.date));
+  const selectDay = (day) => {
+    const dateStr = toDateStr(viewYear, viewMonthIdx, day);
+    setSelectedDate(dateStr);
+    setForm(f => ({ ...f, date: dateStr }));
+  };
+
+  const openAddForDay = (day) => {
+    const dateStr = toDateStr(viewYear, viewMonthIdx, day);
+    setSelectedDate(dateStr);
+    setForm(f => ({ ...f, date: dateStr }));
+    setShowAdd(true);
+  };
+
+  const addEvent = () => {
+    if (!form.title.trim() || !form.date) return;
+    setEvents(p => [...p, { ...form, title: form.title.trim(), id: Date.now() }]);
+    setShowAdd(false);
+    setSelectedDate(form.date);
+    setForm({ title: "", date: form.date, time: "", type: "call", contact: "", reminder: false });
+  };
+
+  const listEvents = [...events]
+    .filter(e => !selectedDate || e.date === selectedDate)
+    .sort((a, b) => a.date.localeCompare(b.date) || (a.time || "").localeCompare(b.time || ""));
+
+  const btnSm = { background: "white", border: "1px solid #e2e8f0", color: "#475569", borderRadius: 6, padding: "6px 10px", fontSize: 12, cursor: "pointer", fontFamily: "inherit" };
 
   return (
     <div style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden", background: "#f8fafc" }}>
-      <TopBar title="Calendar" sub="Schedule and manage your activities" action={
-        <button onClick={() => setShowAdd(!showAdd)} style={{ background: "#6366f1", border: "none", color: "white", borderRadius: 7, padding: "9px 18px", fontSize: 13, fontWeight: 700, cursor: "pointer", fontFamily: "inherit" }}>+ Add Event</button>
+      <TopBar title="Calendar" sub="Click a day to filter · double-click a day to add an event" action={
+        <button type="button" onClick={() => { setForm(f => ({ ...f, date: selectedDate || todayStr })); setShowAdd(!showAdd); }} style={{ background: "#6366f1", border: "none", color: "white", borderRadius: 7, padding: "9px 18px", fontSize: 13, fontWeight: 700, cursor: "pointer", fontFamily: "inherit" }}>+ Add Event</button>
       } />
 
       {showAdd && (
         <div style={{ background: "white", borderBottom: "1px solid #f1f5f9", padding: "18px 24px" }}>
           <div style={{ display: "grid", gridTemplateColumns: "repeat(5,1fr)", gap: 12, marginBottom: 12 }}>
-            <div style={{ gridColumn: "1/3" }}><label style={{ color: "#64748b", fontSize: 11, fontWeight: 600, display: "block", marginBottom: 4 }}>Event Title</label><input value={form.title} onChange={e => setForm(f=>({...f,title:e.target.value}))} placeholder="e.g. Showing — 123 Main St" style={inp} /></div>
-            <div><label style={{ color: "#64748b", fontSize: 11, fontWeight: 600, display: "block", marginBottom: 4 }}>Date</label><input type="date" value={form.date} onChange={e => setForm(f=>({...f,date:e.target.value}))} style={inp} /></div>
+            <div style={{ gridColumn: "1/3" }}><label style={{ color: "#64748b", fontSize: 11, fontWeight: 600, display: "block", marginBottom: 4 }}>Event Title *</label><input value={form.title} onChange={e => setForm(f=>({...f,title:e.target.value}))} placeholder="e.g. Showing — 123 Main St" style={inp} /></div>
+            <div><label style={{ color: "#64748b", fontSize: 11, fontWeight: 600, display: "block", marginBottom: 4 }}>Date *</label><input type="date" value={form.date} onChange={e => setForm(f=>({...f,date:e.target.value}))} style={inp} /></div>
             <div><label style={{ color: "#64748b", fontSize: 11, fontWeight: 600, display: "block", marginBottom: 4 }}>Time</label><input value={form.time} onChange={e => setForm(f=>({...f,time:e.target.value}))} placeholder="e.g. 2:00 PM" style={inp} /></div>
             <div><label style={{ color: "#64748b", fontSize: 11, fontWeight: 600, display: "block", marginBottom: 4 }}>Type</label><select value={form.type} onChange={e => setForm(f=>({...f,type:e.target.value}))} style={{...inp,cursor:"pointer"}}>{["call","showing","offer","closing","meeting","reminder"].map(t=><option key={t}>{t}</option>)}</select></div>
           </div>
-          <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
-            <button onClick={addEvent} style={{ background: "#6366f1", border: "none", color: "white", borderRadius: 7, padding: "9px 20px", fontSize: 13, fontWeight: 700, cursor: "pointer", fontFamily: "inherit" }}>Save Event</button>
-            <button onClick={() => setShowAdd(false)} style={{ background: "white", border: "1px solid #e2e8f0", color: "#64748b", borderRadius: 7, padding: "9px 14px", fontSize: 13, cursor: "pointer", fontFamily: "inherit" }}>Cancel</button>
+          <div style={{ marginBottom: 12 }}><label style={{ color: "#64748b", fontSize: 11, fontWeight: 600, display: "block", marginBottom: 4 }}>Contact (optional)</label><input value={form.contact} onChange={e => setForm(f=>({...f,contact:e.target.value}))} placeholder="Lead or client name" style={inp} /></div>
+          <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
+            <button type="button" onClick={addEvent} disabled={!form.title.trim() || !form.date} style={{ background: form.title.trim() && form.date ? "#6366f1" : "#cbd5e1", border: "none", color: "white", borderRadius: 7, padding: "9px 20px", fontSize: 13, fontWeight: 700, cursor: form.title.trim() && form.date ? "pointer" : "default", fontFamily: "inherit" }}>Save Event</button>
+            <button type="button" onClick={() => setShowAdd(false)} style={{ background: "white", border: "1px solid #e2e8f0", color: "#64748b", borderRadius: 7, padding: "9px 14px", fontSize: 13, cursor: "pointer", fontFamily: "inherit" }}>Cancel</button>
             <label style={{ display: "flex", alignItems: "center", gap: 6, color: "#475569", fontSize: 13, cursor: "pointer" }}>
               <input type="checkbox" checked={form.reminder} onChange={e => setForm(f=>({...f,reminder:e.target.checked}))} style={{ accentColor: "#6366f1" }} />Set Reminder
             </label>
@@ -2294,30 +2354,48 @@ function CalendarView() {
         </div>
       )}
 
-      <div style={{ flex: 1, display: "flex", overflow: "hidden" }}>
-        {/* Mini calendar grid */}
+      <div style={{ flex: 1, display: "flex", overflow: "hidden", minHeight: 0 }}>
         <div style={{ width: 320, background: "white", borderRight: "1px solid #f1f5f9", padding: 20, flexShrink: 0, overflow: "auto" }}>
-          <div style={{ color: "#0f172a", fontSize: 15, fontWeight: 800, marginBottom: 16, textAlign: "center" }}>{viewMonth}</div>
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 16 }}>
+            <button type="button" onClick={() => shiftMonth(-1)} style={btnSm} aria-label="Previous month">‹</button>
+            <div style={{ color: "#0f172a", fontSize: 15, fontWeight: 800 }}>{monthLabel}</div>
+            <button type="button" onClick={() => shiftMonth(1)} style={btnSm} aria-label="Next month">›</button>
+          </div>
+          <button type="button" onClick={() => { const n = new Date(); setViewYear(n.getFullYear()); setViewMonthIdx(n.getMonth()); setSelectedDate(todayStr); }} style={{ ...btnSm, width: "100%", marginBottom: 12, fontWeight: 600 }}>Today</button>
           <div style={{ display: "grid", gridTemplateColumns: "repeat(7,1fr)", gap: 4, marginBottom: 8 }}>
             {["Su","Mo","Tu","We","Th","Fr","Sa"].map(d => <div key={d} style={{ textAlign: "center", color: "#94a3b8", fontSize: 10, fontWeight: 700 }}>{d}</div>)}
           </div>
           <div style={{ display: "grid", gridTemplateColumns: "repeat(7,1fr)", gap: 4 }}>
-            {/* May 2026 starts on Friday — offset 5 */}
-            {Array(5).fill(null).map((_,i) => <div key={"e"+i} />)}
-            {days.map(d => {
-              const dateStr = `2026-05-${String(d).padStart(2,"0")}`;
+            {gridCells.map((day, i) => {
+              if (!day) return <div key={"e"+i} />;
+              const dateStr = toDateStr(viewYear, viewMonthIdx, day);
               const hasEvent = events.some(e => e.date === dateStr);
-              const isToday = d === 25;
+              const isToday = dateStr === todayStr;
+              const isSelected = dateStr === selectedDate;
               return (
-                <div key={d} style={{ width: "100%", aspectRatio: "1", borderRadius: 6, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 12, fontWeight: isToday ? 800 : 400, background: isToday ? "#6366f1" : hasEvent ? "#eef2ff" : "transparent", color: isToday ? "white" : hasEvent ? "#6366f1" : "#475569", position: "relative", cursor: "pointer" }}>
-                  {d}
-                  {hasEvent && !isToday && <div style={{ position: "absolute", bottom: 2, left: "50%", transform: "translateX(-50%)", width: 4, height: 4, borderRadius: "50%", background: "#6366f1" }} />}
-                </div>
+                <button
+                  key={dateStr}
+                  type="button"
+                  title={hasEvent ? "Has events — click to filter, double-click to add" : "Click to select, double-click to add event"}
+                  onClick={() => selectDay(day)}
+                  onDoubleClick={() => openAddForDay(day)}
+                  style={{
+                    width: "100%", aspectRatio: "1", borderRadius: 6, border: isSelected ? "2px solid #6366f1" : "1px solid transparent",
+                    display: "flex", alignItems: "center", justifyContent: "center", fontSize: 12,
+                    fontWeight: isToday || isSelected ? 800 : 400,
+                    background: isSelected ? "#6366f1" : isToday ? "#eef2ff" : hasEvent ? "#f5f3ff" : "transparent",
+                    color: isSelected ? "white" : isToday ? "#6366f1" : hasEvent ? "#6366f1" : "#475569",
+                    position: "relative", cursor: "pointer", padding: 0, fontFamily: "inherit",
+                  }}
+                >
+                  {day}
+                  {hasEvent && !isSelected && <div style={{ position: "absolute", bottom: 2, left: "50%", transform: "translateX(-50%)", width: 4, height: 4, borderRadius: "50%", background: "#6366f1" }} />}
+                </button>
               );
             })}
           </div>
-
-          <div style={{ marginTop: 20 }}>
+          <p style={{ color: "#94a3b8", fontSize: 11, marginTop: 12, lineHeight: 1.5 }}>Click a day to see its events. Double-click to add on that day.</p>
+          <div style={{ marginTop: 16 }}>
             <div style={{ color: "#475569", fontSize: 11, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 10 }}>Legend</div>
             {Object.entries(eventColors).map(([type, color]) => (
               <div key={type} style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6 }}>
@@ -2328,10 +2406,23 @@ function CalendarView() {
           </div>
         </div>
 
-        {/* Event list */}
-        <div style={{ flex: 1, overflow: "auto", padding: 20 }}>
-          <div style={{ color: "#475569", fontSize: 12, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 14 }}>All Upcoming Events</div>
-          {upcomingEvents.map(e => {
+        <div style={{ flex: 1, overflow: "auto", padding: 20, minHeight: 0 }}>
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 14, flexWrap: "wrap", gap: 8 }}>
+            <div style={{ color: "#475569", fontSize: 12, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.06em" }}>
+              {selectedDate ? `Events on ${selectedDate}` : "All events"} ({listEvents.length})
+            </div>
+            <div style={{ display: "flex", gap: 8 }}>
+              <button type="button" onClick={() => { setForm(f => ({ ...f, date: selectedDate || todayStr })); setShowAdd(true); }} style={{ ...btnSm, background: "#eef2ff", borderColor: "#c7d2fe", color: "#6366f1", fontWeight: 600 }}>+ Add on this day</button>
+              {selectedDate && <button type="button" onClick={() => setSelectedDate(null)} style={btnSm}>Show all</button>}
+            </div>
+          </div>
+          {listEvents.length === 0 && (
+            <div style={{ textAlign: "center", padding: 48, color: "#94a3b8", fontSize: 14, background: "white", borderRadius: 12, border: "1px dashed #e2e8f0" }}>
+              No events {selectedDate ? "on this day" : "yet"}.<br />
+              <button type="button" onClick={() => setShowAdd(true)} style={{ marginTop: 12, background: "#6366f1", border: "none", color: "white", borderRadius: 7, padding: "8px 16px", fontSize: 13, fontWeight: 700, cursor: "pointer", fontFamily: "inherit" }}>+ Add Event</button>
+            </div>
+          )}
+          {listEvents.map(e => {
             const color = eventColors[e.type] || "#6366f1";
             return (
               <div key={e.id} style={{ background: "white", border: "1px solid #f1f5f9", borderRadius: 10, padding: "14px 18px", marginBottom: 10, display: "flex", alignItems: "center", gap: 16, boxShadow: "0 1px 3px rgba(0,0,0,0.04)" }}>
@@ -2340,11 +2431,11 @@ function CalendarView() {
                 </div>
                 <div style={{ flex: 1 }}>
                   <div style={{ color: "#0f172a", fontSize: 14, fontWeight: 700, marginBottom: 2 }}>{e.title}</div>
-                  <div style={{ color: "#94a3b8", fontSize: 12 }}>{e.contact && e.contact + " · "}{e.date} at {e.time}</div>
+                  <div style={{ color: "#94a3b8", fontSize: 12 }}>{e.contact && e.contact + " · "}{e.date}{e.time ? ` at ${e.time}` : ""}</div>
                 </div>
                 {e.reminder && <div style={{ background: "#eef2ff", color: "#6366f1", fontSize: 10, fontWeight: 700, padding: "3px 9px", borderRadius: 10 }}>🔔 REMINDER</div>}
                 <span style={{ background: color+"18", color, fontSize: 11, fontWeight: 700, padding: "3px 9px", borderRadius: 4, textTransform: "capitalize", whiteSpace: "nowrap" }}>{e.type}</span>
-                <button onClick={() => setEvents(p => p.filter(ev => ev.id !== e.id))} style={{ background: "transparent", border: "none", color: "#cbd5e1", cursor: "pointer", fontSize: 16, padding: 4 }}>✕</button>
+                <button type="button" onClick={() => setEvents(p => p.filter(ev => ev.id !== e.id))} title="Delete event" style={{ background: "transparent", border: "none", color: "#cbd5e1", cursor: "pointer", fontSize: 16, padding: 4 }}>✕</button>
               </div>
             );
           })}
@@ -25152,6 +25243,10 @@ function LoginScreen({ onLogin }) {
 
   const handleLogin = () => {
     if (locked) return;
+    if (!ESTATEIQ_PASSWORD) {
+      setError("Login password not configured. Set VITE_ESTATEIQ_PASSWORD in .env.local and rebuild.");
+      return;
+    }
     if (password === ESTATEIQ_PASSWORD) {
       const sessionData = { loggedIn: true, loginTime: Date.now(), lastActivity: Date.now() };
       try { sessionStorage.setItem("estateiq_session", JSON.stringify(sessionData)); } catch {}
@@ -25395,7 +25490,13 @@ export default function App() {
     }
   };
 
+  const navContext = {
+    setActive: handleSetActive,
+    openHelp: () => setShowHelp(true),
+  };
+
   return (
+    <AppNavContext.Provider value={navContext}>
     <div style={{ display: "flex", height: "100vh", fontFamily: "'Inter', system-ui, sans-serif", overflow: "hidden", background: "#f8fafc" }}>
       <style>{`
         @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap');
@@ -25677,8 +25778,9 @@ export default function App() {
         {active === "bizplan" && <BusinessPlan />}
         {active === "complistings" && <CompetitorListings />}
         {active === "invoice" && <InvoiceGenerator />}
-        <QuickAdd setActive={setActive} contacts={contacts} setContacts={handleSetContacts} />
+        <QuickAdd setActive={handleSetActive} contacts={contacts} setContacts={handleSetContacts} />
       </main>
     </div>
+    </AppNavContext.Provider>
   );
 }
