@@ -420,11 +420,21 @@ function AddContactModal({ onClose, onAdd }) {
 }
 
 // ─── Sidebar ──────────────────────────────────────────────────────────────────
-function Sidebar({ active, setActive, onColorLegend, onHelp, onLogout, onActivityLog }) {
+function Sidebar({ active, setActive, onColorLegend, onHelp, onLogout, onActivityLog, sessionMinutesLeft }) {
   const [collapsed, setCollapsed] = useState({});
   const [iconOnly, setIconOnly] = useState(false);
 
+  const handleNavClick = (item) => {
+    if (item.special === "activity_log") { onActivityLog(); return; }
+    if (item.special === "logout") { onLogout(); return; }
+    setActive(item.id);
+  };
+
   const navGroups = [
+    { label: "ACCOUNT", color: "#64748b", bg: "rgba(100,116,139,0.15)", icon: "🔐", items: [
+      { id: "_activity_log", icon: "📋", label: "Activity Log", special: "activity_log" },
+      { id: "_logout", icon: "🔓", label: "Logout", special: "logout" },
+    ]},
     { label: "MAIN", color: "#3b82f6", bg: "rgba(59,130,246,0.15)", icon: "▦", items: [
       { id: "dashboard", icon: "▦", label: "Dashboard" },
       { id: "leads", icon: "◎", label: "My Leads" },
@@ -803,7 +813,7 @@ function Sidebar({ active, setActive, onColorLegend, onHelp, onLogout, onActivit
                 return (
                   <button
                     key={n.id}
-                    onClick={() => setActive(n.id)}
+                    onClick={() => handleNavClick(n)}
                     title={n.label}
                     style={{
                       width: "100%",
@@ -855,11 +865,17 @@ function Sidebar({ active, setActive, onColorLegend, onHelp, onLogout, onActivit
         </div>
       )}
       {!iconOnly && (
-        <div style={{ padding: "10px 12px 14px", borderTop: "1px solid rgba(255,255,255,0.06)", display: "flex", flexDirection: "column", gap: 6 }}>
-          <button onClick={onActivityLog} style={{ display:"flex", gap:8, alignItems:"center", padding:"9px 12px", borderRadius:8, background:"rgba(255,255,255,0.04)", border:"1px solid rgba(255,255,255,0.08)", color:"rgba(255,255,255,0.5)", cursor:"pointer", fontSize:12, fontFamily:"inherit", width:"100%", justifyContent:"flex-start" }}>
+        <div style={{ padding: "10px 12px 14px", borderTop: "1px solid rgba(255,255,255,0.06)", display: "flex", flexDirection: "column", gap: 6, flexShrink: 0 }}>
+          <div style={{ background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.08)", borderRadius: 8, padding: "8px 10px", marginBottom: 2 }}>
+            <div style={{ color: "rgba(255,255,255,0.35)", fontSize: 9, fontWeight: 700, letterSpacing: "0.08em", textTransform: "uppercase", marginBottom: 4 }}>Session</div>
+            <div style={{ color: sessionMinutesLeft <= 10 ? "#f87171" : "#10b981", fontSize: 11, fontWeight: 700 }}>
+              {sessionMinutesLeft} min until auto-logout
+            </div>
+          </div>
+          <button type="button" onClick={onActivityLog} style={{ display:"flex", gap:8, alignItems:"center", padding:"9px 12px", borderRadius:8, background:"rgba(255,255,255,0.04)", border:"1px solid rgba(255,255,255,0.08)", color:"rgba(255,255,255,0.5)", cursor:"pointer", fontSize:12, fontFamily:"inherit", width:"100%", justifyContent:"flex-start" }}>
             <span>📋</span> Activity Log
           </button>
-          <button onClick={onLogout} style={{ display:"flex", gap:8, alignItems:"center", padding:"9px 12px", borderRadius:8, background:"rgba(239,68,68,0.1)", border:"1px solid rgba(239,68,68,0.25)", color:"#f87171", cursor:"pointer", fontSize:12, fontFamily:"inherit", width:"100%", justifyContent:"flex-start" }}>
+          <button type="button" onClick={onLogout} style={{ display:"flex", gap:8, alignItems:"center", padding:"9px 12px", borderRadius:8, background:"rgba(239,68,68,0.1)", border:"1px solid rgba(239,68,68,0.25)", color:"#f87171", cursor:"pointer", fontSize:12, fontFamily:"inherit", width:"100%", justifyContent:"flex-start" }}>
             <span>🔓</span> Logout
           </button>
         </div>
@@ -25218,12 +25234,38 @@ function mapATContact(rec) {
 // ⚠️  Use a strong password: mix of uppercase, lowercase, numbers, and symbols
 // ⚠️  Example: "Gerald@Houston2026#Broker" — never use the default in production
 const ESTATEIQ_PASSWORD = import.meta.env.VITE_ESTATEIQ_PASSWORD || "";
+const SESSION_STORAGE_KEY = "estateiq_session";
+const ACTIVITY_LOG_KEY = "estateiq_activity_log";
 const SESSION_TIMEOUT_MINUTES = 60;  // Auto-logout after 60 min of inactivity
 const MAX_LOGIN_ATTEMPTS = 5;        // Lock account for 5 min after 5 failed attempts
 const APP_VERSION = "EstateIQ v1.0 · Gerald Houston Real Estate · 52 ZIPs · Se Habla Español";
 
+function loadActivityLog() {
+  try {
+    const raw = localStorage.getItem(ACTIVITY_LOG_KEY);
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      if (Array.isArray(parsed)) return parsed;
+    }
+  } catch {}
+  return [];
+}
+
+function readSession() {
+  try {
+    return JSON.parse(sessionStorage.getItem(SESSION_STORAGE_KEY) || "{}");
+  } catch {
+    return {};
+  }
+}
+
+function isSessionValid(session) {
+  return session.loggedIn && session.lastActivity &&
+    (Date.now() - session.lastActivity) < SESSION_TIMEOUT_MINUTES * 60 * 1000;
+}
+
 // ─── LOGIN SCREEN ─────────────────────────────────────────────────────────────
-function LoginScreen({ onLogin }) {
+function LoginScreen({ onLogin, sessionExpired }) {
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
   const [attempts, setAttempts] = useState(0);
@@ -25249,7 +25291,7 @@ function LoginScreen({ onLogin }) {
     }
     if (password === ESTATEIQ_PASSWORD) {
       const sessionData = { loggedIn: true, loginTime: Date.now(), lastActivity: Date.now() };
-      try { sessionStorage.setItem("estateiq_session", JSON.stringify(sessionData)); } catch {}
+      try { sessionStorage.setItem(SESSION_STORAGE_KEY, JSON.stringify(sessionData)); } catch {}
       onLogin();
     } else {
       const newAttempts = attempts + 1;
@@ -25279,6 +25321,12 @@ function LoginScreen({ onLogin }) {
         {/* Login card */}
         <div style={{ background:"rgba(255,255,255,0.05)", border:"1px solid rgba(255,255,255,0.1)", borderRadius:20, padding:32, backdropFilter:"blur(10px)" }}>
           <div style={{ color:"rgba(255,255,255,0.7)", fontSize:15, fontWeight:600, marginBottom:24, textAlign:"center" }}>🔐 Secure Login</div>
+
+          {sessionExpired && (
+            <div style={{ background:"rgba(245,158,11,0.15)", border:"1px solid rgba(245,158,11,0.35)", borderRadius:10, padding:"10px 14px", marginBottom:16, color:"#fcd34d", fontSize:13, textAlign:"center" }}>
+              Session expired after {SESSION_TIMEOUT_MINUTES} minutes of inactivity. Please log in again.
+            </div>
+          )}
 
           {error && (
             <div style={{ background:"rgba(239,68,68,0.15)", border:"1px solid rgba(239,68,68,0.4)", borderRadius:10, padding:"10px 14px", marginBottom:16, color:"#f87171", fontSize:13, textAlign:"center" }}>
@@ -25334,40 +25382,42 @@ function LoginScreen({ onLogin }) {
         )}
 
         {/* Change password tip */}
-        <div style={{ background:"rgba(245,158,11,0.1)", border:"1px solid rgba(245,158,11,0.2)", borderRadius:10, padding:"10px 14px", marginTop:12, textAlign:"center" }}>
-          <div style={{ color:"#fcd34d", fontSize:11 }}>⚠️ Change the default password in the SECURITY CONFIG section before deploying to your live site.</div>
-        </div>
+        {!ESTATEIQ_PASSWORD && (
+          <div style={{ background:"rgba(245,158,11,0.1)", border:"1px solid rgba(245,158,11,0.2)", borderRadius:10, padding:"10px 14px", marginTop:12, textAlign:"center" }}>
+            <div style={{ color:"#fcd34d", fontSize:11 }}>Set VITE_ESTATEIQ_PASSWORD in .env.local, then run npm run build.</div>
+          </div>
+        )}
       </div>
     </div>
   );
 }
 
 // ─── ACTIVITY LOG ─────────────────────────────────────────────────────────────
-const activityLog = [];
-function logActivity(action, detail = "") {
-  activityLog.unshift({
-    action, detail,
-    time: new Date().toLocaleTimeString(),
-    date: new Date().toLocaleDateString(),
-    timestamp: Date.now(),
-  });
-  if (activityLog.length > 100) activityLog.pop(); // Keep last 100 entries
-}
-
-function ActivityLogPanel({ onClose }) {
+function ActivityLogPanel({ entries, onClose, onClear }) {
   return (
     <div style={{ position:"fixed", inset:0, background:"rgba(0,0,0,0.6)", zIndex:1000, display:"flex", alignItems:"center", justifyContent:"center" }}>
       <div style={{ background:"#1e2d3d", borderRadius:16, width:"90%", maxWidth:520, maxHeight:"80vh", overflow:"hidden", display:"flex", flexDirection:"column" }}>
         <div style={{ padding:"16px 20px", borderBottom:"1px solid rgba(255,255,255,0.06)", display:"flex", justifyContent:"space-between", alignItems:"center" }}>
-          <div style={{ color:"white", fontSize:15, fontWeight:700 }}>📋 Activity Log</div>
-          <button onClick={onClose} style={{ background:"none", border:"none", color:"rgba(255,255,255,0.4)", cursor:"pointer", fontSize:20 }}>✕</button>
+          <div>
+            <div style={{ color:"white", fontSize:15, fontWeight:700 }}>📋 Activity Log</div>
+            <div style={{ color:"rgba(255,255,255,0.35)", fontSize:11, marginTop:2 }}>Login, navigation, and session events</div>
+          </div>
+          <div style={{ display:"flex", gap:8, alignItems:"center" }}>
+            {entries.length > 0 && (
+              <button type="button" onClick={onClear} style={{ background:"rgba(239,68,68,0.15)", border:"1px solid rgba(239,68,68,0.3)", color:"#f87171", borderRadius:6, padding:"4px 10px", fontSize:11, cursor:"pointer", fontFamily:"inherit" }}>Clear</button>
+            )}
+            <button type="button" onClick={onClose} style={{ background:"none", border:"none", color:"rgba(255,255,255,0.4)", cursor:"pointer", fontSize:20 }}>✕</button>
+          </div>
         </div>
         <div style={{ flex:1, overflow:"auto", padding:16 }}>
-          {activityLog.length === 0 ? (
+          {entries.length === 0 ? (
             <div style={{ textAlign:"center", color:"rgba(255,255,255,0.3)", padding:"40px 20px" }}>No activity logged yet</div>
-          ) : activityLog.map((entry, i) => (
-            <div key={i} style={{ padding:"10px 14px", background:"rgba(255,255,255,0.04)", borderRadius:8, marginBottom:8, display:"flex", gap:12 }}>
-              <div style={{ color:"rgba(255,255,255,0.3)", fontSize:11, whiteSpace:"nowrap", minWidth:60 }}>{entry.time}</div>
+          ) : entries.map((entry) => (
+            <div key={entry.id} style={{ padding:"10px 14px", background:"rgba(255,255,255,0.04)", borderRadius:8, marginBottom:8, display:"flex", gap:12 }}>
+              <div style={{ color:"rgba(255,255,255,0.3)", fontSize:11, whiteSpace:"nowrap", minWidth:72 }}>
+                <div>{entry.date}</div>
+                <div>{entry.time}</div>
+              </div>
               <div>
                 <div style={{ color:"rgba(255,255,255,0.8)", fontSize:12, fontWeight:600 }}>{entry.action}</div>
                 {entry.detail && <div style={{ color:"rgba(255,255,255,0.4)", fontSize:11 }}>{entry.detail}</div>}
@@ -25381,14 +25431,10 @@ function ActivityLogPanel({ onClose }) {
 }
 
 export default function App() {
-  const [loggedIn, setLoggedIn] = useState(() => {
-    // Check existing session
-    try {
-      const s = JSON.parse(sessionStorage.getItem("estateiq_session") || "{}");
-      if (s.loggedIn && s.lastActivity && (Date.now() - s.lastActivity) < SESSION_TIMEOUT_MINUTES * 60 * 1000) return true;
-    } catch {}
-    return false;
-  });
+  const [loggedIn, setLoggedIn] = useState(() => isSessionValid(readSession()));
+  const [sessionExpired, setSessionExpired] = useState(false);
+  const [sessionMinutesLeft, setSessionMinutesLeft] = useState(SESSION_TIMEOUT_MINUTES);
+  const [activityLog, setActivityLog] = useState(loadActivityLog);
   const [active, setActive] = useState("dashboard");
   const [contacts, setContacts] = useState(INIT_CONTACTS);
   const [showLegend, setShowLegend] = useState(false);
@@ -25396,56 +25442,101 @@ export default function App() {
   const [showActivityLog, setShowActivityLog] = useState(false);
   const [atStatus, setAtStatus] = useState("idle"); // idle | syncing | synced | error
   const [atMessage, setAtMessage] = useState("");
-  const lastActivityRef = useRef(Date.now());
+  const lastActivityRef = useRef(readSession().lastActivity || Date.now());
+
+  const appendActivity = (action, detail = "") => {
+    const entry = {
+      id: Date.now() + Math.random(),
+      action,
+      detail,
+      time: new Date().toLocaleTimeString(),
+      date: new Date().toLocaleDateString(),
+      timestamp: Date.now(),
+    };
+    setActivityLog(prev => {
+      const next = [entry, ...prev].slice(0, 100);
+      try { localStorage.setItem(ACTIVITY_LOG_KEY, JSON.stringify(next)); } catch {}
+      return next;
+    });
+  };
+
+  const clearActivityLog = () => {
+    setActivityLog([]);
+    try { localStorage.removeItem(ACTIVITY_LOG_KEY); } catch {}
+    appendActivity("Activity log cleared");
+  };
+
+  const forceLogout = (reason, detail = "") => {
+    appendActivity(reason, detail);
+    sessionStorage.removeItem(SESSION_STORAGE_KEY);
+    setLoggedIn(false);
+  };
 
   // ── Session timeout tracker ──────────────────────────────────────────────────
   useEffect(() => {
     if (!loggedIn) return;
-    const updateActivity = () => {
+
+    const session = readSession();
+    if (session.lastActivity) lastActivityRef.current = session.lastActivity;
+
+    const touchSession = () => {
       lastActivityRef.current = Date.now();
       try {
-        const s = JSON.parse(sessionStorage.getItem("estateiq_session") || "{}");
-        sessionStorage.setItem("estateiq_session", JSON.stringify({ ...s, lastActivity: Date.now() }));
+        const s = readSession();
+        sessionStorage.setItem(SESSION_STORAGE_KEY, JSON.stringify({ ...s, lastActivity: Date.now() }));
       } catch {}
     };
-    window.addEventListener("mousemove", updateActivity);
-    window.addEventListener("keydown", updateActivity);
-    window.addEventListener("click", updateActivity);
-    window.addEventListener("touchstart", updateActivity);
+
+    window.addEventListener("mousemove", touchSession);
+    window.addEventListener("keydown", touchSession);
+    window.addEventListener("click", touchSession);
+    window.addEventListener("touchstart", touchSession);
+    window.addEventListener("scroll", touchSession);
 
     const checkTimeout = setInterval(() => {
       const idle = Date.now() - lastActivityRef.current;
+      const remainingMs = SESSION_TIMEOUT_MINUTES * 60 * 1000 - idle;
+      setSessionMinutesLeft(Math.max(0, Math.ceil(remainingMs / 60000)));
+
       if (idle > SESSION_TIMEOUT_MINUTES * 60 * 1000) {
-        sessionStorage.removeItem("estateiq_session");
-        setLoggedIn(false);
-        alert("You have been logged out due to inactivity.");
+        setSessionExpired(true);
+        forceLogout("Session expired", `Auto-logout after ${SESSION_TIMEOUT_MINUTES} min inactivity`);
       }
-    }, 30000); // Check every 30 seconds
+    }, 15000);
 
     return () => {
-      window.removeEventListener("mousemove", updateActivity);
-      window.removeEventListener("keydown", updateActivity);
-      window.removeEventListener("click", updateActivity);
-      window.removeEventListener("touchstart", updateActivity);
+      window.removeEventListener("mousemove", touchSession);
+      window.removeEventListener("keydown", touchSession);
+      window.removeEventListener("click", touchSession);
+      window.removeEventListener("touchstart", touchSession);
+      window.removeEventListener("scroll", touchSession);
       clearInterval(checkTimeout);
     };
   }, [loggedIn]);
 
   // ── Log section navigation ───────────────────────────────────────────────────
   const handleSetActive = (section) => {
-    logActivity("Navigated to", section);
+    if (section.startsWith("_")) return;
+    appendActivity("Navigated to", section);
     setActive(section);
   };
 
   const handleLogout = () => {
-    logActivity("Logged out");
-    sessionStorage.removeItem("estateiq_session");
-    setLoggedIn(false);
+    if (!window.confirm("Log out of EstateIQ?")) return;
+    forceLogout("Logged out");
+  };
+
+  const handleLogin = () => {
+    setSessionExpired(false);
+    appendActivity("Logged in successfully");
+    setLoggedIn(true);
+    lastActivityRef.current = Date.now();
+    setSessionMinutesLeft(SESSION_TIMEOUT_MINUTES);
   };
 
   // ── Show login if not authenticated ─────────────────────────────────────────
   if (!loggedIn) {
-    return <LoginScreen onLogin={() => { logActivity("Logged in successfully"); setLoggedIn(true); }} />;
+    return <LoginScreen onLogin={handleLogin} sessionExpired={sessionExpired} />;
   }
 
   const syncFromAirtable = async () => {
@@ -25510,9 +25601,9 @@ export default function App() {
       <MobileStyles />
       {/* Security: Session timer display */}
       {showLegend && <ColorLegend onClose={() => setShowLegend(false)} />}
-      {showActivityLog && <ActivityLogPanel onClose={() => setShowActivityLog(false)} />}
+      {showActivityLog && <ActivityLogPanel entries={activityLog} onClose={() => setShowActivityLog(false)} onClear={clearActivityLog} />}
       {showHelp && <HelpTutorial onClose={() => setShowHelp(false)} setActive={setActive} />}
-      <Sidebar active={active} setActive={handleSetActive} onLogout={handleLogout} onActivityLog={()=>setShowActivityLog(true)} onColorLegend={() => setShowLegend(true)} onHelp={() => setShowHelp(true)} />
+      <Sidebar active={active} setActive={handleSetActive} onLogout={handleLogout} onActivityLog={() => { appendActivity("Opened activity log"); setShowActivityLog(true); }} onColorLegend={() => setShowLegend(true)} onHelp={() => setShowHelp(true)} sessionMinutesLeft={sessionMinutesLeft} />
       <main style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden" }}>
         {/* Airtable Sync Bar */}
         <div style={{ padding: "8px 24px", background: "#1e2d3d", display: "flex", alignItems: "center", gap: 12, flexShrink: 0 }}>
@@ -25527,6 +25618,10 @@ export default function App() {
           <button onClick={syncFromAirtable} style={{ marginLeft: "auto", background: "rgba(255,255,255,0.08)", border: "1px solid rgba(255,255,255,0.15)", color: "rgba(255,255,255,0.6)", borderRadius: 6, padding: "5px 12px", fontSize: 11, fontWeight: 600, cursor: "pointer", fontFamily: "inherit" }}>
             {atStatus === "syncing" ? "⟳ Syncing..." : "⟳ Sync Contacts"}
           </button>
+          <div style={{ color: "rgba(255,255,255,0.2)", fontSize: 11 }}>|</div>
+          <div style={{ color: sessionMinutesLeft <= 10 ? "#f87171" : "rgba(255,255,255,0.45)", fontSize: 11, fontWeight: 600 }}>
+            🔒 Session: {sessionMinutesLeft}m left
+          </div>
           <div style={{ color: "rgba(255,255,255,0.2)", fontSize: 11 }}>|</div>
           <div style={{ color: "rgba(255,255,255,0.3)", fontSize: 11 }}>IDX ● LIVE · MLS Austin TX</div>
         </div>
