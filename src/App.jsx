@@ -25055,9 +25055,9 @@ function DeadLeadResurrection({ contacts }) {
 }
 
 
-// ─── Airtable Config ──────────────────────────────────────────────────────────
-const AIRTABLE_TOKEN = "YOUR_AIRTABLE_TOKEN_HERE";
-const AIRTABLE_BASE  = "YOUR_AIRTABLE_BASE_ID_HERE";
+// ─── Airtable Config (set VITE_* in .env.local, then npm run build) ───────────
+const AIRTABLE_TOKEN = import.meta.env.VITE_AIRTABLE_TOKEN || "";
+const AIRTABLE_BASE  = import.meta.env.VITE_AIRTABLE_BASE || "";
 const AT_URL = (table) => `https://api.airtable.com/v0/${AIRTABLE_BASE}/${encodeURIComponent(table)}`;
 const AT_HEADERS = { "Authorization": `Bearer ${AIRTABLE_TOKEN}`, "Content-Type": "application/json" };
 
@@ -25126,7 +25126,7 @@ function mapATContact(rec) {
 // ⚠️  IMPORTANT: Change ESTATEIQ_PASSWORD before deploying to your live site!
 // ⚠️  Use a strong password: mix of uppercase, lowercase, numbers, and symbols
 // ⚠️  Example: "Gerald@Houston2026#Broker" — never use the default in production
-const ESTATEIQ_PASSWORD = "Gerald2026!Houston";
+const ESTATEIQ_PASSWORD = import.meta.env.VITE_ESTATEIQ_PASSWORD || "";
 const SESSION_TIMEOUT_MINUTES = 60;  // Auto-logout after 60 min of inactivity
 const MAX_LOGIN_ATTEMPTS = 5;        // Lock account for 5 min after 5 failed attempts
 const APP_VERSION = "EstateIQ v1.0 · Gerald Houston Real Estate · 52 ZIPs · Se Habla Español";
